@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { supabaseAdmin, isSupabaseConfigured } from '@/lib/supabase'
+import { extract } from '@extractus/article-extractor'
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'placeholder')
 
@@ -93,69 +94,7 @@ export async function POST(request: NextRequest) {
       console.log('Supabase not configured, skipping user validation checks')
     }
 
-    // Generate AI analysis using Gemini
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' })
-
-    const prompt = `
-      As a startup advisor, analyze this startup idea and provide a comprehensive evaluation:
-
-      Startup Idea: "${idea}"
-
-      Please provide your analysis in the following JSON format:
-      {
-        "oneLiner": "A concise one-line pitch for this startup",
-        "marketSize": "Estimated market size and opportunity",
-        "monetization": ["List of suggested monetization models"],
-        "competitors": ["Key competitors in this space"],
-        "moat": "Analysis of potential competitive advantages/moats",
-        "targetAudience": "Primary target audience description",
-        "risks": ["Key risks and red flags"],
-        "swotAnalysis": {
-          "strengths": ["List of strengths"],
-          "weaknesses": ["List of weaknesses"],
-          "opportunities": ["List of opportunities"],
-          "threats": ["List of threats"]
-        },
-        "investorFit": "Analysis of investor attractiveness",
-        "nextSteps": ["Recommended immediate next steps"],
-        "viabilityScore": "Score from 1-10 with brief explanation"
-      }
-
-      Provide realistic, actionable insights based on current market conditions.
-    `
-
-    const result = await model.generateContent(prompt)
-    const response = await result.response
-    const analysis = response.text()
-
-    // Parse the JSON response
-    let geminiAnalysis
-    try {
-      geminiAnalysis = JSON.parse(analysis.replace(/```json|```/g, '').trim())
-    } catch (parseError) {
-      console.error('Error parsing Gemini response:', parseError)
-      geminiAnalysis = {
-        oneLiner: "Unable to generate structured analysis",
-        marketSize: "Analysis not available",
-        monetization: ["Contact support for detailed analysis"],
-        competitors: ["Analysis not available"],
-        moat: "Analysis not available", 
-        targetAudience: "Analysis not available",
-        risks: ["Analysis not available"],
-        swotAnalysis: {
-          strengths: ["Analysis not available"],
-          weaknesses: ["Analysis not available"], 
-          opportunities: ["Analysis not available"],
-          threats: ["Analysis not available"]
-        },
-        investorFit: "Analysis not available",
-        nextSteps: ["Contact support for detailed analysis"],
-        viabilityScore: "N/A",
-        rawResponse: analysis
-      }
-    }
-
-    // Get search results from Google CSE
+    // Get search results from Google CSE first
     let searchResults = []
     try {
       // Debug environment variables
@@ -171,7 +110,7 @@ export async function POST(request: NextRequest) {
           process.env.GOOGLE_CSE_API_KEY !== 'test_key' && process.env.GOOGLE_CSE_ID !== 'test_id') {
         
         const searchQuery = encodeURIComponent(`${idea} startup market research`)
-        const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${process.env.GOOGLE_CSE_API_KEY}&cx=${process.env.GOOGLE_CSE_ID}&q=${searchQuery}&num=8`
+        const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${process.env.GOOGLE_CSE_API_KEY}&cx=${process.env.GOOGLE_CSE_ID}&q=${searchQuery}&num=3`
         
         console.log('Fetching Google CSE results...')
         const searchResponse = await fetch(searchUrl)
@@ -183,12 +122,33 @@ export async function POST(request: NextRequest) {
             itemsCount: searchData.items?.length 
           })
           
-          searchResults = searchData.items?.slice(0, 8).map((item: any) => ({
-            title: item.title || 'No title',
-            link: item.link || '#',
-            snippet: item.snippet || 'No description available',
-            displayLink: item.displayLink || 'Unknown source'
-          })) || []
+          const rawResults = searchData.items?.slice(0, 3) || []
+          
+          // Extract content from each URL
+          const resultsWithContent = await Promise.all(
+            rawResults.map(async (item: any) => {
+              let extractedContent = ''
+              try {
+                console.log(`Extracting content from: ${item.link}`)
+                const article = await extract(item.link)
+                extractedContent = article?.content || article?.description || ''
+                console.log(`Extracted ${extractedContent.length} characters from: ${item.link}`)
+              } catch (extractError) {
+                console.error(`Content extraction failed for ${item.link}:`, extractError)
+                extractedContent = item.snippet || 'Content extraction failed'
+              }
+
+              return {
+                title: item.title || 'No title',
+                link: item.link || '#',
+                snippet: item.snippet || 'No description available',
+                displayLink: item.displayLink || 'Unknown source',
+                extractedContent
+              }
+            })
+          )
+          
+          searchResults = resultsWithContent
         } else {
           const errorData = await searchResponse.text()
           console.error('Google CSE API error:', {
@@ -238,6 +198,88 @@ export async function POST(request: NextRequest) {
       ]
     }
 
+    // Generate AI analysis using Gemini with scraped content
+    const model = genAI.getGenerativeModel({ 
+      model: 'gemini-2.0-flash-lite',
+      systemInstruction: `You are an expert startup advisor. Analyze startup ideas and provide comprehensive evaluations using provided market research data.
+
+ALWAYS respond in the following JSON format:
+{
+  "oneLiner": "A concise one-line pitch for this startup",
+  "marketSize": "Estimated market size and opportunity (use research data)",
+  "monetization": ["List of suggested monetization models based on market research"],
+  "competitors": ["Key competitors identified from research data"],
+  "moat": "Analysis of potential competitive advantages/moats considering competition",
+  "targetAudience": "Primary target audience description based on market data",
+  "risks": ["Key risks and red flags identified from research"],
+  "swotAnalysis": {
+    "strengths": ["List of strengths based on market analysis"],
+    "weaknesses": ["List of weaknesses considering competition"],
+    "opportunities": ["List of opportunities found in research"],
+    "threats": ["List of threats identified from market data"]
+  },
+  "investorFit": "Analysis of investor attractiveness based on market research",
+  "nextSteps": ["Recommended immediate next steps based on findings"],
+  "viabilityScore": "Score from 1-10 with brief explanation based on all data"
+}
+
+Provide realistic, actionable insights based on the provided market research and current market conditions. Reference specific insights from the research data where relevant.`
+    })
+
+    // Prepare market research context from scraped content
+    const marketResearchContext = searchResults.map((result, index) => {
+      if (result.extractedContent && result.extractedContent !== 'Content extraction failed') {
+        return `Research Source ${index + 1}:
+Title: ${result.title}
+URL: ${result.link}
+Content: ${result.extractedContent}`
+      }
+      return `Research Source ${index + 1}:
+Title: ${result.title}
+URL: ${result.link}
+Snippet: ${result.snippet}`
+    }).join('\n\n---\n\n')
+
+    // User input with startup idea and market research data
+    const userInput = `Please analyze this startup idea using the provided market research data:
+
+STARTUP IDEA:
+${idea}
+
+MARKET RESEARCH DATA:
+${marketResearchContext}`
+
+    const result = await model.generateContent(userInput)
+    const response = await result.response
+    const analysis = response.text()
+
+    // Parse the JSON response
+    let geminiAnalysis
+    try {
+      geminiAnalysis = JSON.parse(analysis.replace(/```json|```/g, '').trim())
+    } catch (parseError) {
+      console.error('Error parsing Gemini response:', parseError)
+      geminiAnalysis = {
+        oneLiner: "Unable to generate structured analysis",
+        marketSize: "Analysis not available",
+        monetization: ["Contact support for detailed analysis"],
+        competitors: ["Analysis not available"],
+        moat: "Analysis not available", 
+        targetAudience: "Analysis not available",
+        risks: ["Analysis not available"],
+        swotAnalysis: {
+          strengths: ["Analysis not available"],
+          weaknesses: ["Analysis not available"], 
+          opportunities: ["Analysis not available"],
+          threats: ["Analysis not available"]
+        },
+        investorFit: "Analysis not available",
+        nextSteps: ["Contact support for detailed analysis"],
+        viabilityScore: "N/A",
+        rawResponse: analysis
+      }
+    }
+
     // Save validation to database (only if Supabase is configured)
     if (isSupabaseConfigured && userId) {
       const { error: saveError } = await supabaseAdmin
@@ -253,21 +295,37 @@ export async function POST(request: NextRequest) {
         console.error('Error saving validation:', saveError)
       }
 
-      // Get current validation count and increment
+      // Update validation count/credits based on user type
       const { data: currentUser, error: getUserError } = await supabaseAdmin
         .from('users')
-        .select('validation_count')
+        .select('is_paid, validation_count, validation_credits')
         .eq('id', userId)
         .single()
 
       if (!getUserError && currentUser) {
-        const { error: updateError } = await supabaseAdmin
-          .from('users')
-          .update({ validation_count: currentUser.validation_count + 1 })
-          .eq('id', userId)
+        if (currentUser.is_paid) {
+          // Paid user: decrement validation_credits
+          const { error: updateError } = await supabaseAdmin
+            .from('users')
+            .update({ 
+              validation_credits: Math.max(0, currentUser.validation_credits - 1),
+              validation_count: currentUser.validation_count + 1 // Track total validations used
+            })
+            .eq('id', userId)
           
-        if (updateError) {
-          console.error('Error updating validation count:', updateError)
+          if (updateError) {
+            console.error('Error updating validation credits:', updateError)
+          }
+        } else {
+          // Free user: increment validation_count
+          const { error: updateError } = await supabaseAdmin
+            .from('users')
+            .update({ validation_count: currentUser.validation_count + 1 })
+            .eq('id', userId)
+            
+          if (updateError) {
+            console.error('Error updating validation count:', updateError)
+          }
         }
       }
     } else {

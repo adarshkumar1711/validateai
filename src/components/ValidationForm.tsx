@@ -33,8 +33,14 @@ export function ValidationForm({ onValidationComplete, onUpgradeRequired }: Vali
     }
   }
 
-  const remainingValidations = userStatus ? Math.max(0, 3 - userStatus.validationCount) : 3
-  const showLimitWarning = userStatus && !userStatus.hasActiveSubscription && remainingValidations <= 1
+  const remainingValidations = userStatus 
+    ? (userStatus.isPaid 
+        ? userStatus.validationCredits 
+        : Math.max(0, 3 - userStatus.validationCount)
+      )
+    : 3
+  
+  const showLimitWarning = userStatus && remainingValidations <= 1
 
   return (
     <div className="w-full max-w-4xl mx-auto">
@@ -79,16 +85,16 @@ export function ValidationForm({ onValidationComplete, onUpgradeRequired }: Vali
         {showLimitWarning && (
           <div className="p-4 bg-amber-900/50 border border-amber-700 rounded-lg">
             <p className="text-amber-300 text-sm">
-              ⚠️ You have {remainingValidations} free validation{remainingValidations !== 1 ? 's' : ''} remaining. 
-              Upgrade to Pro for unlimited access.
+              ⚠️ You have {remainingValidations} {userStatus?.isPaid ? 'credit' : 'free validation'}{remainingValidations !== 1 ? 's' : ''} remaining. 
+              {!userStatus?.isPaid && 'Contact us for more validations.'}
             </p>
           </div>
         )}
 
         <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
           <div className="text-sm text-gray-400">
-            {userStatus?.hasActiveSubscription ? (
-              <span className="text-green-400 font-medium">✓ Pro Plan Active</span>
+            {userStatus?.isPaid ? (
+              <span className="text-green-400 font-medium">✓ Paid User - {remainingValidations} credits remaining</span>
             ) : (
               <span>
                 Free tier: {remainingValidations} validation{remainingValidations !== 1 ? 's' : ''} remaining

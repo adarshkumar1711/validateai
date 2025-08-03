@@ -17,10 +17,9 @@ export async function POST(request: NextRequest) {
       console.log('Supabase not configured, returning demo data')
       return NextResponse.json({
         validationCount: 0,
+        validationCredits: 0,
         isPaid: false,
-        subscriptionExpires: null,
         canValidate: true,
-        hasActiveSubscription: false,
         demo: true,
         message: 'Configure Supabase for real user tracking'
       })
@@ -45,23 +44,22 @@ export async function POST(request: NextRequest) {
       // Return default status for new user
       return NextResponse.json({
         validationCount: 0,
+        validationCredits: 0,
         isPaid: false,
-        subscriptionExpires: null,
         canValidate: true
       })
     }
 
-    const now = new Date()
-    const subscriptionExpires = user.subscription_expires ? new Date(user.subscription_expires) : null
-    const hasActiveSubscription = user.is_paid && subscriptionExpires && subscriptionExpires > now
-    const canValidate = hasActiveSubscription || user.validation_count < 3
+    // Determine canValidate based on user type
+    const canValidate = user.is_paid 
+      ? user.validation_credits > 0 
+      : user.validation_count < 3
 
     return NextResponse.json({
       validationCount: user.validation_count,
+      validationCredits: user.validation_credits || 0,
       isPaid: user.is_paid,
-      subscriptionExpires: user.subscription_expires,
-      canValidate,
-      hasActiveSubscription
+      canValidate
     })
 
   } catch (error) {

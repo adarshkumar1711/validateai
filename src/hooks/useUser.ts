@@ -5,10 +5,9 @@ import { getAnonymousId } from '@/lib/utils'
 
 interface UserStatus {
   validationCount: number
+  validationCredits: number
   isPaid: boolean
-  subscriptionExpires: string | null
   canValidate: boolean
-  hasActiveSubscription: boolean
 }
 
 export function useUser() {

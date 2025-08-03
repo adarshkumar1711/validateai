@@ -43,6 +43,24 @@ body {
   font-family: var(--font-inter), system-ui, sans-serif;
   font-feature-settings: 'cv11', 'ss01';
   font-variation-settings: 'opsz' 32;
+  overflow-x: hidden;
+}
+
+/* Mobile Navigation Fix */
+@media (max-width: 768px) {
+  /* Ensure mobile navigation doesn't interfere with scrolling */
+  .mobile-nav-fixed {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+  }
+  
+  /* Add extra bottom padding to prevent content overlap */
+  .mobile-safe-area {
+    padding-bottom: 80px;
+  }
 }
 
 h1, h2, h3, h4, h5, h6 {

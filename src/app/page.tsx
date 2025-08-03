@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { ValidationForm } from '@/components/ValidationForm'
 import { ValidationResults } from '@/components/ValidationResults'
 import { ValidationHistory } from '@/components/ValidationHistory'
-import { SubscriptionModal } from '@/components/SubscriptionModal'
+import { PayAsYouGoModal } from '@/components/PayAsYouGoModal'
 import { Footer } from '@/components/Footer'
 import { Button } from '@/components/ui/Button'
 import { useUser } from '@/hooks/useUser'
@@ -16,7 +16,7 @@ type View = 'home' | 'history'
 export default function HomePage() {
   const [currentView, setCurrentView] = useState<View>('home')
   const [validationResult, setValidationResult] = useState<any>(null)
-  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false)
+  const [showPayAsYouGoModal, setShowPayAsYouGoModal] = useState(false)
   const { userStatus, loading: userLoading } = useUser()
 
   const handleValidationComplete = (result: any) => {
@@ -25,12 +25,7 @@ export default function HomePage() {
   }
 
   const handleUpgradeRequired = () => {
-    setShowSubscriptionModal(true)
-  }
-
-  const handleSubscriptionSuccess = () => {
-    toast.success('Welcome to ValidateAI Pro! 🎉')
-    setShowSubscriptionModal(false)
+    setShowPayAsYouGoModal(true)
   }
 
   const handleNewValidation = () => {
@@ -90,28 +85,19 @@ export default function HomePage() {
             </div>
             
             <div className="flex items-center space-x-4">
-              {userStatus?.hasActiveSubscription ? (
+              <div className="text-sm text-gray-400">
+                {userStatus ? (
+                  userStatus.isPaid 
+                    ? `${userStatus.validationCredits} validation credits remaining`
+                    : `${Math.max(0, 3 - userStatus.validationCount)} free validations left`
+                ) : (
+                  '3 free validations'
+                )}
+              </div>
+              {userStatus?.isPaid && (
                 <div className="px-3 py-1 bg-gradient-to-r from-green-900 to-emerald-900 text-green-300 text-sm font-medium rounded-full border border-green-700">
-                  Pro Active
+                  Paid User
                 </div>
-              ) : (
-                <div className="text-sm text-gray-400">
-                  {userStatus ? (
-                    `${Math.max(0, 3 - userStatus.validationCount)} free validations left`
-                  ) : (
-                    '3 free validations'
-                  )}
-                </div>
-              )}
-              
-              {!userStatus?.hasActiveSubscription && (
-                <Button
-                  onClick={() => setShowSubscriptionModal(true)}
-                  size="sm"
-                  className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white"
-                >
-                  Upgrade
-                </Button>
               )}
             </div>
           </div>
@@ -119,7 +105,7 @@ export default function HomePage() {
       </nav>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-16 md:pb-8 mobile-safe-area">
         {currentView === 'home' ? (
           <div className="space-y-12">
             {!validationResult ? (
@@ -151,7 +137,7 @@ export default function HomePage() {
       </main>
 
       {/* Mobile Navigation */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-black/90 backdrop-blur-sm border-t border-gray-800 px-4 py-3">
+      <div className="md:hidden mobile-nav-fixed bg-black/90 backdrop-blur-sm border-t border-gray-800 px-4 py-3">
         <div className="flex items-center justify-around">
           <Button
             onClick={() => {
@@ -175,14 +161,16 @@ export default function HomePage() {
         </div>
       </div>
 
+      {/* Mobile Spacer - ensures content is never hidden */}
+      <div className="md:hidden h-24"></div>
+
       {/* Footer */}
       <Footer />
 
-      {/* Subscription Modal */}
-      <SubscriptionModal
-        isOpen={showSubscriptionModal}
-        onClose={() => setShowSubscriptionModal(false)}
-        onSuccess={handleSubscriptionSuccess}
+      {/* Pay As You Go Modal */}
+      <PayAsYouGoModal
+        isOpen={showPayAsYouGoModal}
+        onClose={() => setShowPayAsYouGoModal(false)}
       />
     </div>
   )
